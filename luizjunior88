@@ -1,0 +1,244 @@
+<!-- Estilos personalizados (Importante: mantive o <style> e as fontes aqui) -->
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+    /* Note que o corpo (body) original foi removido, então usamos o div principal */
+    .ar-app-container {
+        font-family: 'Inter', sans-serif;
+        background-color: #f1f5f9; /* slate-100 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        border-radius: 12px; /* Mantendo o estilo visual agradável */
+        padding: 16px;
+    }
+    #ar-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 10;
+    }
+    .ar-viewfinder {
+        position: relative;
+        background: #111827;
+        border: 4px solid #3b82f6;
+        box-shadow: 0 10px 15px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+    }
+</style>
+
+<!-- Carrega Tailwind CSS e Three.js (via CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<!-- Conteúdo Principal da Aplicação -->
+<div class="ar-app-container p-4 w-full max-w-lg md:max-w-xl mx-auto">
+    <div class="w-full">
+        <h1 class="text-3xl font-extrabold text-center text-gray-800 mb-6">Visualizador AR de Poliedros</h1>
+
+        <!-- Área de Visualização AR (Simulação de Câmara) -->
+        <div id="ar-container" class="ar-viewfinder w-full aspect-square rounded-xl mb-6">
+            <canvas id="ar-canvas"></canvas>
+            <div id="status-message" class="absolute inset-0 flex items-center justify-center p-4 z-20 text-center text-white bg-black bg-opacity-30">
+                <p class="font-semibold text-lg">
+                    Aponte a sua câmara para um QR Code.
+                    <br><small class="text-gray-300">(Abaixo, insira um tipo para simular a leitura)</small>
+                </p>
+            </div>
+        </div>
+
+        <!-- Controles de Simulação de Leitura de QR Code -->
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">Simulação de Leitura QR</h2>
+
+            <div class="mb-4">
+                <label for="polyhedronInput" class="block text-sm font-medium text-gray-600 mb-2">Tipo de Poliedro (Ex: **tetraedro**, **cubo**, **icosaedro**):</label>
+                <input type="text" id="polyhedronInput" value="icosaedro" placeholder="Digite o nome do poliedro"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-800">
+            </div>
+
+            <button id="scanButton"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition duration-200 transform hover:scale-[1.01] active:scale-[0.99]">
+                Simular Leitura QR Code
+            </button>
+
+            <p id="resultText" class="mt-4 text-center text-sm text-gray-600 font-medium hidden">
+                Código lido: <span id="scannedPolyhedron" class="font-semibold text-blue-600"></span>
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Variáveis globais para a cena 3D
+    let scene, camera, renderer, polyhedron, controls;
+    const container = document.getElementById('ar-container');
+    const canvas = document.getElementById('ar-canvas');
+    const statusMessage = document.getElementById('status-message');
+    const resultText = document.getElementById('resultText');
+    const scannedPolyhedronSpan = document.getElementById('scannedPolyhedron');
+    const polyhedronInput = document.getElementById('polyhedronInput');
+    const scanButton = document.getElementById('scanButton');
+
+    /**
+     * Inicializa a cena Three.js
+     */
+    function initThreeJS() {
+        // 1. Cena
+        scene = new THREE.Scene();
+
+        // 2. Câmera (Perspectiva para 3D)
+        const aspect = container.clientWidth / container.clientHeight;
+        camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+        camera.position.z = 2.5;
+
+        // 3. Renderer
+        renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            alpha: true, // Importante: torna o fundo transparente para o efeito AR
+            antialias: true
+        });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+
+        // 4. Luzes
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(1, 1, 1).normalize();
+        scene.add(directionalLight);
+
+        // 5. Inicia o loop de animação
+        animate();
+    }
+
+    /**
+     * Cria e adiciona um poliedro à cena com base no tipo.
+     * @param {string} type - O tipo de poliedro (ex: 'tetraedro', 'cubo', 'icosaedro').
+     */
+    function createPolyhedron(type) {
+        // Remove qualquer objeto existente
+        if (polyhedron) {
+            scene.remove(polyhedron);
+            polyhedron = null;
+        }
+
+        let geometry;
+        const normalizedType = type.toLowerCase().trim();
+        let color = 0xffa500; // Cor Padrão (Laranja)
+
+        // Mapeamento e criação das geometrias
+        switch (normalizedType) {
+            case 'tetraedro':
+                geometry = new THREE.TetrahedronGeometry(1);
+                color = 0x4ade80; // Green-400
+                break;
+            case 'cubo':
+                geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+                color = 0xfacc15; // Yellow-400
+                break;
+            case 'octaedro':
+                geometry = new THREE.OctahedronGeometry(1);
+                color = 0xf87171; // Red-400
+                break;
+            case 'dodecaedro':
+                geometry = new THREE.DodecahedronGeometry(1);
+                color = 0x818cf8; // Indigo-400
+                break;
+            case 'icosaedro':
+            default:
+                geometry = new THREE.IcosahedronGeometry(1);
+                color = 0x3b82f6; // Blue-500
+                break;
+        }
+
+        // Material com wireframe para um visual mais técnico/geométrico
+        const material = new THREE.MeshPhongMaterial({
+            color: color,
+            transparent: true,
+            opacity: 0.8,
+            specular: 0x222222,
+            shininess: 30
+        });
+
+        polyhedron = new THREE.Mesh(geometry, material);
+
+        // Adiciona um wireframe para destacar as arestas
+        const wireframe = new THREE.LineSegments(
+            new THREE.WireframeGeometry(geometry),
+            new THREE.LineBasicMaterial({
+                color: 0x000000,
+                linewidth: 2,
+                transparent: true,
+                opacity: 0.2
+            })
+        );
+        polyhedron.add(wireframe);
+        
+        scene.add(polyhedron);
+
+        // Atualiza o estado da UI
+        statusMessage.classList.add('hidden');
+        resultText.classList.remove('hidden');
+        scannedPolyhedronSpan.textContent = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+    }
+
+    /**
+     * Loop principal de animação e renderização.
+     */
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // Rotação contínua do poliedro para visualização dinâmica
+        if (polyhedron) {
+            polyhedron.rotation.x += 0.005;
+            polyhedron.rotation.y += 0.008;
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    /**
+     * Lógica de Simulação de Leitura de QR Code.
+     */
+    function simulateScan() {
+        const type = polyhedronInput.value || 'icosaedro'; // Pega o valor do input, ou usa icosaedro como padrão
+        createPolyhedron(type);
+    }
+
+    /**
+     * Ajusta o tamanho da câmara e do canvas na redimensionamento da janela.
+     */
+    function onWindowResize() {
+        if (container && camera && renderer) {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+    }
+
+    // --- Inicialização e Event Listeners ---
+
+    // Inicializa o Three.js no carregamento do script. 
+    // É importante que o window.onload seja chamado dentro do widget para garantir que o script carregue no momento certo.
+    window.onload = function() {
+        initThreeJS();
+        
+        // Adiciona os listeners APENAS DEPOIS que a cena 3D for inicializada
+        scanButton.addEventListener('click', simulateScan);
+        window.addEventListener('resize', onWindowResize);
+        polyhedronInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                simulateScan();
+            }
+        });
+        
+        // Executa uma simulação inicial para mostrar o icosaedro
+        simulateScan();
+    };
+</script>
